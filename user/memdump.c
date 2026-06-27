@@ -2,7 +2,35 @@
 #include "user/user.h"
 #include "kernel/fcntl.h"
 
-void memdump(char *fmt, char *data);
+void memdump(char *fmt, char *data) {
+  int n = strlen(fmt);
+  for (int i = 0; i < n; i++) {
+    if(fmt[i] == 'i'){
+      printf("%d\n", *(int *)data);
+      data += 4;
+    }
+    else if(fmt[i] == 'p'){
+      printf("%lx\n", *(uint64 *)data);
+      data += 8;
+    }
+    else if(fmt[i] == 'h'){
+      printf("%d\n", *(short *)data);
+      data += 2;
+    }
+    else if(fmt[i] == 'c'){
+      printf("%c\n", *data);
+      data += 1;
+    }
+    else if(fmt[i] == 's'){
+      printf("%s\n", *(char **)data);
+      data += 8;
+    }
+    else if(fmt[i] == 'S'){
+      printf("%s\n", data);
+      break;
+    }
+  }
+}
 
 int
 main(int argc, char *argv[])
@@ -57,9 +85,3 @@ main(int argc, char *argv[])
   exit(0);
 }
 
-void
-memdump(char *fmt, char *data)
-{
-  // Your code here.
-
-}
