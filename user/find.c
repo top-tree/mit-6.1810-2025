@@ -3,8 +3,38 @@
 #include "user/user.h"
 #include "kernel/fcntl.h"
 #include "kernel/fs.h"
+#include "kernel/param.h"
 
-void find(char *path, char *target) {
+void run_exec(char **cmd, int cmd_argc, char *file) {
+    if (cmd_argc + 2 > MAXARG) {
+        fprintf(2, "find: too many args\n");
+        exit(1);
+    }
+    char *exec_argv[MAXARG];
+    for (int i = 0; i < cmd_argc; i++) {
+        exec_argv[i] = cmd[i];
+    }
+    exec_argv[cmd_argc] = file;
+    exec_argv[cmd_argc + 1] = 0;
+    int pid = fork();
+    if (pid < 0) {
+        fprintf(2, "find: fork failed\n");
+        exit(1);
+    }
+    if (pid == 0) {
+        // child
+        exec(exec_argv[0], exec_argv);
+        // failed
+        fprintf(2, "find: exec %s failed\n", exec_argv[0]);
+        exit(1);
+    }
+    else {
+        // parent
+        wait(0);
+    }
+}
+
+void find(char *path, char *target, int use_exec, char **cmd, int cmd_argc) {
     // printf("now: %s\n", path);
     char buf[512];
     struct stat st;
@@ -23,10 +53,15 @@ void find(char *path, char *target) {
         while (name >= path && *name != '/') {
             name--;
         }
-        if (strcmp(name + 1, target) == 0) {
-            printf("%s\n", path);
-        }
         close(fd);
+        if (strcmp(name + 1, target) == 0) {
+            if (use_exec) {
+                run_exec(cmd, cmd_argc, path);
+            }
+            else {
+                printf("%s\n", path);
+            }
+        }
         return;
     }
     if (strlen(path) + 1 + DIRSIZ + 1 > sizeof(buf)) {
@@ -46,18 +81,26 @@ void find(char *path, char *target) {
             continue;
         }
         if (st.type == T_DIR) {
-            find(buf, target);
+            find(buf, target, use_exec, cmd, cmd_argc);
         }
     }
     close(fd);
 }
 
 int main(int argc, char *argv[]) {
-    if(argc != 3){
-        fprintf(2, "usage: find path name\n");
+    if (argc != 3 && (argc < 5 || strcmp(argv[3], "-exec") != 0)) {
+        fprintf(2, "usage: find path name [-exec cmd ...]\n");
         exit(1);
     }
-    find(argv[1], argv[2]);
+    int use_exec = 0;
+    char **cmd = 0;
+    int cmd_argc = 0;
+    if (argc >= 5) {
+        use_exec = 1;
+        cmd = &argv[4];
+        cmd_argc = argc - 4;
+    }
+    find(argv[1], argv[2], use_exec, cmd, cmd_argc);
     exit(0);
 }
 
