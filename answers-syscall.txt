@@ -1,0 +1,51 @@
+##############################################################################
+
+1. Looking at the backtrace output, which function called syscall?
+
+usertrap ()
+
+│(gdb) backtrace                                                                                                                                    │
+│#0  syscall () at kernel/syscall.c:133
+│#1  0x0000000080001aa6 in usertrap () at kernel/trap.c:68
+│#2  0x0000003ffffff09c in ?? ()
+
+##############################################################################
+
+2. What is the value of p->trapframe->a7 and what does that value represent?
+(Hint: look at user/init.c, the first user program xv6 starts,
+and its compiled assembly user/init.asm.) 
+
+the value of p->trapframe->a7 is 15, 15 represents SYS_open, the system call number for open
+represent syscall number
+
+##############################################################################
+
+3. What was the previous mode that the CPU was in? 
+
+user mode
+
+##############################################################################
+
+4.
+Write down the assembly instruction the kernel is panicing at. 
+Which register corresponds to the variable num? 
+
+lw	a3,0(zero)
+a3
+
+##############################################################################
+
+5. Why does the kernel crash? 
+
+address 0: unused
+
+##############################################################################
+
+6.
+What is the name of the process that was running when the kernel paniced?
+What is its process id (pid)?
+
+name = "init"
+pid = 1
+
+##############################################################################
