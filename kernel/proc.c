@@ -276,6 +276,9 @@ kfork(void)
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
+  // copy syscall_mask
+  np->syscall_mask = p->syscall_mask;
+
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;
 
