@@ -111,5 +111,6 @@ uint64 sys_interpose(void) {
   int mask;
   argint(0, &mask);
   p->syscall_mask = mask;
+  argstr(1, p->syscall_allowed_pathname, MAXPATH);
   return 0;
 }

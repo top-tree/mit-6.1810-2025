@@ -140,8 +140,7 @@ syscall(void)
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
     // Use num to lookup the system call function for num, call it,
     // and store its return value in p->trapframe->a0
-    if (p->syscall_mask >> num & 1) {
-      // printf("%s: cannot use system call with number %d\n", p->name, num);
+    if ((p->syscall_mask >> num & 1) && num != SYS_open && num != SYS_exec) {
       p->trapframe->a0 = -1;
     }
     else {
