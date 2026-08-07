@@ -9,7 +9,15 @@
 #include "riscv.h"
 #include "defs.h"
 
+// KERNBASE   -> PHYSTOP
+// 0x80000000 -> 0x88000000
+// 128MB
+// 2MB * 16 = 32MB
+#define NSUPERPAGE 16
+#define SUPERBASE ((PHYSTOP) - (SUPERPGSIZE) * (NSUPERPAGE))
+
 void freerange(void *pa_start, void *pa_end);
+void superfreerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
@@ -21,13 +29,16 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
-} kmem;
+} kmem, supermem;
 
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
-  freerange(end, (void*)PHYSTOP);
+  freerange(end, (void*)SUPERBASE);
+  
+  initlock(&supermem.lock, "supermem");
+  superfreerange((void*)SUPERBASE, (void*)PHYSTOP);
 }
 
 void
@@ -48,7 +59,7 @@ kfree(void *pa)
 {
   struct run *r;
 
-  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa + PGSIZE > PHYSTOP)
     panic("kfree");
 
   // Fill with junk to catch dangling refs.
@@ -79,4 +90,39 @@ kalloc(void)
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
+}
+
+void superfree(void *pa) {
+  struct run *r;
+  if ((uint64)pa % SUPERPGSIZE != 0 || (uint64)pa < SUPERBASE || (uint64)pa + SUPERPGSIZE > PHYSTOP) {
+    panic("superfree");
+  }
+  memset(pa, 1, SUPERPGSIZE);
+  r = (struct run*)pa;
+  acquire(&supermem.lock);
+  r->next = supermem.freelist;
+  supermem.freelist = r;
+  release(&supermem.lock);
+}
+
+void* superalloc(void) {
+  struct run *r;
+  acquire(&supermem.lock);
+  r = supermem.freelist;
+  if (r) {
+    supermem.freelist = r->next;
+  }
+  release(&supermem.lock);
+  if (r) {
+    memset((char*)r, 5, SUPERPGSIZE);
+  }
+  return (void*)r;
+}
+
+void superfreerange(void *pa_start, void *pa_end) {
+  char *p;
+  p = (char*)SUPERPGROUNDUP((uint64)pa_start);
+  for (; p + SUPERPGSIZE <= (char*)pa_end; p += SUPERPGSIZE) {
+    superfree(p);
+  }
 }
