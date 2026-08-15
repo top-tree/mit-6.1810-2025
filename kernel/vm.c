@@ -299,7 +299,6 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -308,13 +307,15 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       continue;   // physical page hasn't been allocated
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    if (flags & PTE_W) {
+      *pte &= ~PTE_W;
+      *pte |= PTE_COW;
+      flags = PTE_FLAGS(*pte);
+    }
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
       goto err;
     }
+    kaddref((void*)pa);
   }
   return 0;
 
@@ -342,6 +343,9 @@ uvmclear(pagetable_t pagetable, uint64 va)
 int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
+  // kernel write to user space
+  // no page fault
+  // vmfault manually
   uint64 n, va0, pa0;
   pte_t *pte;
 
@@ -359,8 +363,14 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
     pte = walk(pagetable, va0, 0);
     // forbid copyout over read-only user text pages.
-    if((*pte & PTE_W) == 0)
-      return -1;
+    if((*pte & PTE_W) == 0) {
+      if (!(*pte & PTE_COW)) {
+        return -1;
+      }
+      if ((pa0 = vmfault(pagetable, va0, 0)) == 0) {
+        return -1;
+      }
+    }
       
     n = PGSIZE - (dstva - va0);
     if(n > len)
@@ -452,24 +462,59 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 uint64
 vmfault(pagetable_t pagetable, uint64 va, int read)
 {
+  // read = 1 : scause = 13, load page fault
+  // read = 0 : scause = 15, store/AMO page fault
   uint64 mem;
   struct proc *p = myproc();
 
   if (va >= p->sz)
     return 0;
   va = PGROUNDDOWN(va);
-  if(ismapped(pagetable, va)) {
+  if (!ismapped(pagetable, va)) {
+    // lazy allocation
+    mem = (uint64) kalloc();
+    if(mem == 0)
+      return 0;
+    memset((void *) mem, 0, PGSIZE);
+    if (mappages(pagetable, va, PGSIZE, mem, PTE_W|PTE_U|PTE_R) != 0) {
+      kfree((void *)mem);
+      return 0;
+    }
+    return mem;
+  }
+  pte_t *pte = walk(pagetable, va, 0);
+  if (pte == 0) {
     return 0;
   }
-  mem = (uint64) kalloc();
-  if(mem == 0)
-    return 0;
-  memset((void *) mem, 0, PGSIZE);
-  if (mappages(p->pagetable, va, PGSIZE, mem, PTE_W|PTE_U|PTE_R) != 0) {
-    kfree((void *)mem);
+  if ((*pte & PTE_V) == 0) {
     return 0;
   }
-  return mem;
+  if ((*pte & PTE_COW) && read == 0 && (*pte & PTE_U)) {
+    // COW
+    uint64 pa = PTE2PA(*pte);
+    int cnt = kaskref((void*)pa);
+    int flags = PTE_FLAGS(*pte);
+    flags |= PTE_W;
+    flags &= ~PTE_COW;
+    if (cnt > 1) {
+      mem = (uint64)kalloc();
+      if (mem == 0) {
+        return 0;
+      }
+      memmove((void*)mem, (void*)pa, PGSIZE);
+      *pte = PA2PTE(mem) | flags;
+      kfree((void*)pa);
+      return mem;
+    }
+    else if (cnt == 1) {
+      *pte = PA2PTE(pa) | flags;
+      return pa;
+    }
+    else {
+      panic("vmfault");
+    }
+  }
+  return 0;
 }
 
 int
